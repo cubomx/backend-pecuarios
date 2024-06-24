@@ -30,12 +30,12 @@ def compra(request):
     else:
          # check if ariete exists
         ariete = data['ariete']
-        vaca = vacas.find_one({'ariete':ariete}, {'ariete': 1})
+        vaca = vacas.find_one({'ariete':ariete}, {'ariete': 1, '_id': 0})
         if not vaca:
             res = vacas.insert_one(data)
             if res.inserted_id:
-                return HttpResponse([[{'message':'Se agrego con exito la compra'}]], content_type='application/json', status=200)
+                return HttpResponse([{'message':'Se agrego con exito la compra'}], content_type='application/json', status=200)
             else:
-                return HttpResponse([[{'message':'Se produjo un error al agregar la compra'}]], content_type='application/json', status=500)
+                return HttpResponse([{'message':'Se produjo un error al agregar la compra'}], content_type='application/json', status=500)
         else: 
-            return HttpResponse([[{'message':'Ya existe el ariete'}]], content_type='application/json', status=400)
+            return HttpResponse([{'message':'Ya existe el ariete'}], content_type='application/json', status=400)
