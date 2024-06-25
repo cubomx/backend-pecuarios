@@ -18,6 +18,7 @@ from django.urls import path, include
 from . import views
 
 urlpatterns = [
+    path('api/buscar/', include('buscar.urls')),
     path('api/register/', include('register.urls')),
     path('api/addRancho', views.addRancho, name='Agregar rancho'),
     path('api/addLote', views.addLote, name='Agregar lote'),
