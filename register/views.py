@@ -48,11 +48,15 @@ def empadre(request):
     if isGood:
         ariete = data['ariete']
         # check if ariete exits
-        res = vacasTable.find_one({'ariete': ariete}, {'prenada':1, '_id':0})
+        res = vacasTable.find_one({'ariete': ariete}, {'prenada':1, '_id':0, 'categoria': 1})
         if res == None:
             return HttpResponse([{'message':'No existe el ariete'}], content_type='application/json', status=404)
         else:
-            if ('prenada' in res and not res['prenada']) or 'prenada' not in res:
+            # checar que si sea una vaca, porque lo demas no podria gestar
+            if res['categoria'] != 'Vaca':
+                return HttpResponse([{'message':'El ariete {} no es vaca, es {}'.format(ariete, res['categoria'])}], content_type='application/json', status=400)
+
+            elif ('prenada' in res and not res['prenada']) or 'prenada' not in res:
                 result = vacasTable.update_one({'ariete': ariete},{'$set': {'prenada': True}})
                 
                 if result.matched_count == 0:
@@ -83,35 +87,53 @@ def nacimiento(request):
     if isGood:
         # revisar si rancho existe
         rancho = data['rancho']
-        exists = ranchosTable.find_one({''}, {'_id':0, 'rancho':1})
+        exists = ranchosTable.find_one({'rancho':rancho}, {'_id':0, 'rancho':1})
         if exists:
             # revisar si vaca esta embarazada
             ariete_madre = data['ariete_madre']
+            ariete_hijo = data['ariete']
             del data['ariete_madre']
-            vaca = vacasTable.find_one({'ariete':ariete_madre}, {'_id':0, 'prenada':1})
+            vaca = vacasTable.find_one({'ariete':ariete_madre}, {'_id':0, 'prenada':1}) 
             if vaca and ('prenada' in vaca and vaca['prenada']):
-                data['fecha_nacimiento'] = datetime.combine(data['fecha_nacimiento'], datetime.min.time())
+                ariete_en_uso = vacasTable.find_one({'ariete':ariete_hijo}, {'_id':1}) 
+                if ariete_en_uso:
+                    return HttpResponse([{'message':'Ariete hijo {} no se encuentra disponible'.format(ariete_madre)}], content_type='application/json', status=400)
 
-                # mover vaca de futuros partos a partos (nacimientos)
-                parto = partosTable.find_one({'ariete':ariete_madre}, {'_id':0, 'fecha':1})
+                else:   
+                    data['fecha_nacimiento'] = datetime.combine(data['fecha_nacimiento'], datetime.min.time())
 
-                partosTable.delete_one({'ariete':ariete_madre})
-                ariete_hijo = data['ariete']
-                sexo = data['sexo']
-                fecha_nacimiento = data['fecha_nacimiento']
+                    # mover vaca de futuros partos a partos (nacimientos)
+                    parto = partosTable.find_one({'ariete':ariete_madre}, {'_id':0, 'fecha':1})
 
-                del data['ariete']
-                del data['sexo']
-                nacimientos.insert_one({'fecha':fecha_nacimiento,'ariete':ariete_hijo, 'estado':'vivo', 'genero':sexo})
-                # cambiar que vaca ya no esta embarazada y agregarle la referencia al ariete del hijo
-                vacasTable.update_one({'ariete': ariete_madre},{'$set': {'prenada': False}, '$push': {'partos':ariete_hijo}})
-                
-                # anadir la nueva vaca como en compra pero ademas anadir los datos iniciales
-                
-                data['etapa_1'] = {'peso_inicio': data['peso'], 'fecha_inicio':data['fecha_nacimiento']}
-                del data['fecha_nacimiento']
-                del data['peso']
-                vacasTable.insert_one(data)
+                    if not parto:
+                        # puede ser que hubo un error al agregar el nacimiento y cambiar la variable prenada
+                        vacasTable.update_one({'ariete': ariete_madre},{'$set': {'prenada': False}})
+                        return HttpResponse([{'message':'No se encontro parto en la vaca {}'.format(ariete_madre)}], content_type='application/json', status=404)
+                    else:
+                        partosTable.delete_one({'ariete':ariete_madre})
+                        
+                        sexo = data['sexo']
+                        fecha_nacimiento = data['fecha_nacimiento']
+                        dias_gestacion = fecha_nacimiento - parto['fecha']
+                        # agregar a categoria
+                        data['categoria'] = 'Becerro' if sexo == 'Macho' else 'Becerra'
+
+                        del data['ariete']
+                        del data['sexo']
+                        nacimientos.insert_one({'fecha':fecha_nacimiento,'ariete':ariete_hijo, 'estado':'vivo', 'genero':sexo, 'dias_gestacion':dias_gestacion.days})
+                        # cambiar que vaca ya no esta embarazada y agregarle la referencia al ariete del hijo
+                        vacasTable.update_one({'ariete': ariete_madre},{'$set': {'prenada': False}, '$push': {'partos':ariete_hijo}})
+                        
+                        # anadir la nueva vaca como en compra pero ademas anadir los datos iniciales
+                        data['etapa_1'] = {'peso_inicio': data['peso'], 'fecha_inicio':data['fecha_nacimiento']}
+                        del data['fecha_nacimiento']
+                        del data['peso']
+                        res_vaca = vacasTable.insert_one(data)
+                        if res_vaca.inserted_id:
+                            return HttpResponse([{'message':'Se registro con exito el nacimiento del ariete hijo {} de la vaca {}'.format(ariete_hijo, ariete_madre)}], content_type='application/json', status=200)
+                        else:
+                            return HttpResponse([{'message':'Se produjo un error al agregar el hijo de la vaca {}'.format(ariete_madre)}], content_type='application/json', status=500)
+
             else:
                 # quiere decir que si existe la vaca pero no esta embarazada
                 if vaca:
