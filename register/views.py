@@ -6,6 +6,7 @@ import pymongo
 import sys
 sys.path.append('../')
 from helpers.middleware import check_request
+from helpers.register import checar_embarazo
 # Create your views here.
 
 client = pymongo.MongoClient(settings.CONNECTION_STRING)
@@ -48,15 +49,15 @@ def empadre(request):
     if isGood:
         ariete = data['ariete']
         # check if ariete exits
-        res = vacasTable.find_one({'ariete': ariete}, {'prenada':1, '_id':0, 'categoria': 1})
-        if res == None:
+        vaca = vacasTable.find_one({'ariete': ariete}, {'prenada':1, '_id':0, 'categoria': 1})
+        if vaca == None:
             return HttpResponse([{'message':'No existe el ariete'}], content_type='application/json', status=404)
         else:
             # checar que si sea una vaca, porque lo demas no podria gestar
-            if res['categoria'] != 'Vaca':
-                return HttpResponse([{'message':'El ariete {} no es vaca, es {}'.format(ariete, res['categoria'])}], content_type='application/json', status=400)
+            if vaca['categoria'] not in ['Vaca', 'Vaquilla'] :
+                return HttpResponse([{'message':'El ariete {} no es vaca'}], content_type='application/json', status=400)
 
-            elif ('prenada' in res and not res['prenada']) or 'prenada' not in res:
+            elif ('prenada' in vaca and not vaca['prenada']) or 'prenada' not in vaca:
                 result = vacasTable.update_one({'ariete': ariete},{'$set': {'prenada': True}})
                 
                 if result.matched_count == 0:
@@ -66,12 +67,7 @@ def empadre(request):
                     data['fecha'] = datetime.combine(data['fecha'], datetime.min.time())
                     data.update({'metodo':'inseminacion', 'fecha_programada': programado})
 
-                    res = partosTable.insert_one(data)
-                    if res.inserted_id:
-                        return HttpResponse([{'message':'Se agrego la inseminacion a la vaca {} con exito'.format(ariete)}], content_type='application/json', status=200)
-                    else:
-                        vacasTable.update_one({'ariete': ariete},{'$set': {'prenada': False}})
-                        return HttpResponse([{'message':'Hubo un error al guardar el empadre'.format(ariete)}], content_type='application/json', status=500)
+                    return checar_embarazo(data, ariete, partosTable, vacasTable)
                 else:
                     return HttpResponse([{'message':'Se produjo un error al agregar la inseminacion '}], content_type='application/json', status=500)
             else:
@@ -118,7 +114,6 @@ def nacimiento(request):
                         # agregar a categoria
                         data['categoria'] = 'Becerro' if sexo == 'Macho' else 'Becerra'
 
-                        del data['ariete']
                         del data['sexo']
                         nacimientos.insert_one({'fecha':fecha_nacimiento,'ariete':ariete_hijo, 'estado':'vivo', 'genero':sexo, 'dias_gestacion':dias_gestacion.days})
                         # cambiar que vaca ya no esta embarazada y agregarle la referencia al ariete del hijo
@@ -148,17 +143,28 @@ def nacimiento(request):
 def palpaciones(request):
     keys_info = {'ariete': (str), 'dias': (int), 'fecha':(datetime)}
     isGood, data = check_request(request, ['POST'], True, keys_info=keys_info)
+    days_to_add = 283
 
     if isGood:
         # checar si es 0 los dias, por lo tanto fue inseminacion artificial el metodo
+        vaca = vacasTable.find_one({'ariete':data['ariete']}, {'_id':0, 'categoria':1})
+        # checar si existe el ariete y si es de categoria vaca
+        if not vaca or vaca == None:
+            return HttpResponse([{'message':'El ariete {} no existe'}], content_type='application/json', status=404)
+        else:
+            if  vaca['categoria'] not in ['Vaca', 'Vaquilla'] :
+                return HttpResponse([{'message':'El ariete {} no es vaca'}], content_type='application/json', status=400)
+        dias = data['dias']
+        if dias == 0:
+            data['metodo'] = 'inseminacion artificial'
+            data['fecha_programada'] = datetime.combine(data['fecha'] + timedelta(days=days_to_add), datetime.min.time())
+        else:
+            # restar los dias a la fecha actual (asi sabriamos cuando fue masomenos)
+            data['metodo'] = 'inseminacion'
+            data['fecha_programada'] = datetime.combine(data['fecha'] + timedelta(days=days_to_add-dias), datetime.min.time())
 
-        # restar los dias a la fecha actual (asi sabriamos cuando fue masomenos)
-
-        # calcular el tiempo para embarazo
-
-        # guardar el dato en nuevo partos y registar que la madre esta embarazada
+            return checar_embarazo(data, data['ariete'], partosTable, vacasTable)
         print(data)
-        return HttpResponse([{'message':data}], content_type='application/json', status=200)
     else:
         return data
     
