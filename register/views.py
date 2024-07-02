@@ -6,7 +6,7 @@ import pymongo
 import sys
 sys.path.append('../')
 from helpers.middleware import check_request
-from helpers.register import checar_embarazo
+from helpers.register import checar_embarazo, checar_vaca
 # Create your views here.
 
 client = pymongo.MongoClient(settings.CONNECTION_STRING)
@@ -44,35 +44,22 @@ def compra(request):
 def empadre(request):
     keys_info = {'ariete': (str), 'fecha': (datetime)}
     isGood, data = check_request(request, 'PUT', True, keys_info=keys_info)
-    days_to_add = 283
     
     if isGood:
         ariete = data['ariete']
         # check if ariete exits
-        vaca = vacasTable.find_one({'ariete': ariete}, {'prenada':1, '_id':0, 'categoria': 1})
-        if vaca == None:
-            return HttpResponse([{'message':'No existe el ariete'}], content_type='application/json', status=404)
+        # checar si existe el ariete y si es de categoria vaca
+        vaca = checar_vaca(vacasTable, data['ariete'], ['Vaca', 'Vaquilla'], {'_id':0, 'categoria':1, 'prenada':1})
+        if not isinstance(vaca, dict):
+            print(vaca)
+            return vaca
         else:
             # checar que si sea una vaca, porque lo demas no podria gestar
             if vaca['categoria'] not in ['Vaca', 'Vaquilla'] :
                 return HttpResponse([{'message':'El ariete {} no es vaca'}], content_type='application/json', status=400)
-
-            elif ('prenada' in vaca and not vaca['prenada']) or 'prenada' not in vaca:
-                result = vacasTable.update_one({'ariete': ariete},{'$set': {'prenada': True}})
-                
-                if result.matched_count == 0:
-                    return HttpResponse([{'message':'La vaca con ariete {} no se encontro'.format(ariete)}], content_type='application/json', status=404)
-                elif result.modified_count == 1:
-                    programado = datetime.combine(data['fecha'] + timedelta(days=days_to_add), datetime.min.time())
-                    data['fecha'] = datetime.combine(data['fecha'], datetime.min.time())
-                    data.update({'metodo':'inseminacion', 'fecha_programada': programado})
-
-                    return checar_embarazo(data, ariete, partosTable, vacasTable)
-                else:
-                    return HttpResponse([{'message':'Se produjo un error al agregar la inseminacion '}], content_type='application/json', status=500)
             else:
-                return HttpResponse([{'message':'La vaca ya se encuentra gestando'}], content_type='application/json', status=400)
-
+                data['metodo'] = 'inseminacion'
+                return checar_embarazo(data, ariete, partosTable, vacasTable, vaca, 0)
     else:
         return data
 
@@ -143,28 +130,23 @@ def nacimiento(request):
 def palpaciones(request):
     keys_info = {'ariete': (str), 'dias': (int), 'fecha':(datetime)}
     isGood, data = check_request(request, ['POST'], True, keys_info=keys_info)
-    days_to_add = 283
 
     if isGood:
-        # checar si es 0 los dias, por lo tanto fue inseminacion artificial el metodo
-        vaca = vacasTable.find_one({'ariete':data['ariete']}, {'_id':0, 'categoria':1})
         # checar si existe el ariete y si es de categoria vaca
-        if not vaca or vaca == None:
-            return HttpResponse([{'message':'El ariete {} no existe'}], content_type='application/json', status=404)
-        else:
-            if  vaca['categoria'] not in ['Vaca', 'Vaquilla'] :
-                return HttpResponse([{'message':'El ariete {} no es vaca'}], content_type='application/json', status=400)
+        res_vaca = checar_vaca(vacasTable, data['ariete'], ['Vaca', 'Vaquilla'], {'_id':0, 'categoria':1, 'prenada':1})
+        if not isinstance(res_vaca, dict):
+            print(res_vaca)
+            return res_vaca
+        # checar si es 0 los dias, por lo tanto fue inseminacion artificial el metodo
         dias = data['dias']
         if dias == 0:
             data['metodo'] = 'inseminacion artificial'
-            data['fecha_programada'] = datetime.combine(data['fecha'] + timedelta(days=days_to_add), datetime.min.time())
         else:
             # restar los dias a la fecha actual (asi sabriamos cuando fue masomenos)
             data['metodo'] = 'inseminacion'
-            data['fecha_programada'] = datetime.combine(data['fecha'] + timedelta(days=days_to_add-dias), datetime.min.time())
-
-            return checar_embarazo(data, data['ariete'], partosTable, vacasTable)
-        print(data)
+            del data['dias']
+            
+            return checar_embarazo(data, data['ariete'], partosTable, vacasTable, res_vaca, dias)
     else:
         return data
     
@@ -173,13 +155,19 @@ def destete(request):
     isGood, data = check_request(request, ['PATCH'], True, keys_info=keys_info)
 
     if isGood:
-        # checar que la vaca existe
+        # checar que la vaca existe, es becerro/becerra
+        res_vaca = checar_vaca(vacasTable, data['ariete'], ['Becerro', 'Becerra'], {'_id':0, 'categoria':1, 'etapa1':1})
+        if res_vaca is not None:
+            return res_vaca
 
         # revisar que no se haya destetado ya
-
+        if 'etapa1' in res_vaca and 'fecha_fin' in res_vaca['etapa1']:
+            print(res_vaca)
+        else:
+            print('no esta destetada')
         # cambiar de categoria y agregar los datos
-        print(data)
-        return HttpResponse([{'message':data}], content_type='application/json', status=200)
+
+        return HttpResponse([{'message':res_vaca}], content_type='application/json', status=200)
     
 def mal_nacimiento(request):
     keys_info = {'ariete':(str), 'suceso':(str), 'fecha':(datetime)}
