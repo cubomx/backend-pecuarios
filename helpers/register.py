@@ -26,8 +26,6 @@ def checar_embarazo(data, ariete, partosTable, vacasTable, vaca, diff_days):
    
     
 def checar_vaca(vacasTable, ariete, categorias, projection):
-    
-
     vaca = vacasTable.find_one({'ariete':ariete}, projection)
     # checar si existe el ariete y si es de categoria vaca
     if not vaca or vaca == None:

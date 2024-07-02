@@ -1,6 +1,7 @@
 from django.http import HttpResponse
 import json
-from datetime import datetime
+from datetime import datetime, time
+import pytz
 
 def is_datetime(value):
     """
@@ -108,3 +109,15 @@ def check_request(request, methods, itJSON, get_values=[], keys_info={}):
             except json.JSONDecodeError:
                 return (False, HttpResponse([{'message':f'JSON incorrecto: {missing_params_str}'}], content_type='application/json', status=400))
     return (True, None)
+
+def get_today():
+     # Define Mexico City time zone
+    mx_tz = pytz.timezone('America/Mexico_City')
+
+    # Get the current date and time in Mexico City time zone
+    mx_now = datetime.now(mx_tz)
+    
+    # Replace the time to 00:00 hours
+    mx_midnight = datetime.combine(mx_now.date(), time(0, 0), mx_tz)
+
+    return mx_midnight

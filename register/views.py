@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 import pymongo
 import sys
 sys.path.append('../')
-from helpers.middleware import check_request
+from helpers.middleware import check_request, get_today
 from helpers.register import checar_embarazo, checar_vaca
 # Create your views here.
 
@@ -18,6 +18,7 @@ ranchosTable = db['ranchos']
 
 
 def compra(request):
+    etapas = [['Becerro', 'Becerra'], ['Vaquilla','Toro'], ['Vaca','Semental']]
     keys_info={
         'ariete': (str), 'categoria': (str),
         'peso': (int, float), 'rancho': (str),
@@ -28,18 +29,30 @@ def compra(request):
         # this is going to be a HTTP Response object
         return data
     else:
-         # check if ariete exists
-        ariete = data['ariete']
-        vaca = vacasTable.find_one({'ariete':ariete}, {'ariete': 1, '_id': 0})
-        if not vaca:
-            res = vacasTable.insert_one(data)
-            if res.inserted_id:
-                return HttpResponse([{'message':'Se agrego con exito la compra'}], content_type='application/json', status=200)
-            else:
-                return HttpResponse([{'message':'Se produjo un error al agregar la compra'}], content_type='application/json', status=500)
-        else: 
-            return HttpResponse([{'message':'Ya existe el ariete'}], content_type='application/json', status=400)
-        
+        # revisar si rancho existe
+        rancho = data['rancho']
+        exists = ranchosTable.find_one({'rancho':rancho}, {'_id':0, 'rancho':1})
+        if exists:
+            # check if ariete exists
+            ariete = data['ariete']
+            vaca = vacasTable.find_one({'ariete':ariete}, {'ariete': 1, '_id': 0})
+            if not vaca:
+                # agregar el arreglo de la etapa en la que se encuentra
+                label_etapa = 'etapa'
+                for idx, etapa_conjunto in enumerate(etapas):
+                    if data['categoria'] in etapa_conjunto:
+                        label_etapa += str(idx+1)
+                data[label_etapa] = {'peso':data['peso'], 'fecha':get_today()} 
+                del data['peso']
+                res = vacasTable.insert_one(data)
+                if res.inserted_id:
+                    return HttpResponse([{'message':'Se agrego con exito la compra'}], content_type='application/json', status=200)
+                else:
+                    return HttpResponse([{'message':'Se produjo un error al agregar la compra'}], content_type='application/json', status=500)
+            else: 
+                return HttpResponse([{'message':'Ya existe el ariete'}], content_type='application/json', status=400)
+        else:
+            return HttpResponse([{'message':'Rancho no encontrado'}], content_type='application/json', status=404)
 
 def empadre(request):
     keys_info = {'ariete': (str), 'fecha': (datetime)}
